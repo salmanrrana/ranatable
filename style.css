@@ -1,0 +1,115 @@
+:root {
+  --bg: #050510;
+  --ink: #e8e4ff;
+  --dim: #8a84b8;
+  --accent: #9d7bff;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+
+#video {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  transform: scaleX(-1);          /* mirror so it feels like a mirror */
+  filter: grayscale(0.85) brightness(0.42) contrast(1.1);
+  opacity: 0.5;                    /* you, faintly, behind the table */
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at 50% 40%, rgba(30, 20, 70, 0.92), rgba(5, 5, 16, 0.985));
+  z-index: 10;
+  transition: opacity 1.6s ease;
+}
+#overlay.gone { opacity: 0; pointer-events: none; }
+
+.overlay-inner {
+  max-width: 620px;
+  padding: 2rem;
+  text-align: center;
+}
+
+h1 {
+  font-size: clamp(2.4rem, 7vw, 4.2rem);
+  font-weight: 400;
+  letter-spacing: 0.45em;
+  margin-left: 0.45em; /* optically re-center the tracked text */
+  text-shadow: 0 0 30px rgba(157, 123, 255, 0.8), 0 0 90px rgba(157, 123, 255, 0.4);
+}
+
+.sub {
+  margin-top: 0.8rem;
+  color: var(--dim);
+  font-style: italic;
+  letter-spacing: 0.08em;
+}
+
+.howto {
+  margin: 2.2rem 0;
+  text-align: left;
+  line-height: 1.9;
+  font-size: 0.95rem;
+  color: #c9c3ea;
+}
+.howto span { color: var(--accent); margin-right: 0.5em; }
+.howto em { color: var(--ink); }
+
+#start {
+  font-family: inherit;
+  font-size: 1.05rem;
+  letter-spacing: 0.35em;
+  padding: 1rem 2.6rem;
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.4s ease;
+  text-shadow: 0 0 12px rgba(157, 123, 255, 0.9);
+}
+#start:hover {
+  background: rgba(157, 123, 255, 0.16);
+  box-shadow: 0 0 40px rgba(157, 123, 255, 0.5), inset 0 0 20px rgba(157, 123, 255, 0.2);
+}
+
+.fine {
+  margin-top: 1.6rem;
+  font-size: 0.75rem;
+  color: var(--dim);
+  letter-spacing: 0.05em;
+}
+
+#err {
+  position: fixed;
+  left: 50%;
+  bottom: 8vh;
+  transform: translateX(-50%);
+  z-index: 20;
+  background: rgba(60, 10, 20, 0.9);
+  border: 1px solid #ff5470;
+  padding: 0.9rem 1.4rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  max-width: 80vw;
+}

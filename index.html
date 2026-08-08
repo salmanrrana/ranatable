@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AETHER TABLE — a gestural spectral instrument</title>
+  <meta name="description" content="A camera-driven instrument: play notes with your hands like a theremin from another dimension, and place glowing glyphs on the table to sculpt the sound — no mouse, only hands." />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <video id="video" playsinline muted></video>
+  <canvas id="stage"></canvas>
+
+  <div id="overlay">
+    <div class="overlay-inner">
+      <h1>AETHER&nbsp;TABLE</h1>
+      <p class="sub">a spectral instrument played entirely with your hands</p>
+      <div class="howto">
+        <p><span>◍</span> Open hand &nbsp;→&nbsp; play. Move left/right for pitch, up/down for glow. Close your fist for silence.</p>
+        <p><span>◍</span> Two hands &nbsp;→&nbsp; lead voice + deep harmony voice.</p>
+        <p><span>◍</span> Pinch a glyph in the dock &nbsp;→&nbsp; pull it onto the table. Where you place it shapes the sound.</p>
+        <p><span>◍</span> Pinch a placed glyph and <em>twist your wrist</em> &nbsp;→&nbsp; turn it up or down.</p>
+        <p><span>◍</span> Drag a glyph back into the dock &nbsp;→&nbsp; it dissolves.</p>
+      </div>
+      <button id="start">ENTER THE AETHER</button>
+      <p class="fine">needs a camera · headphones recommended · everything stays on your device</p>
+    </div>
+  </div>
+
+  <div id="err" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tone@15.0.4/build/Tone.js"
+          integrity="sha384-42gWnBr2Y4rlMy2jxjddYshP4nyV5xDDAi+roXFrK7tUpQlSWw7b/RgK4Qj7ozxW"
+          crossorigin="anonymous"></script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
