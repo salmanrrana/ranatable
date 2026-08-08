@@ -8,7 +8,7 @@ The sound world lives somewhere between Stars of the Lid, Philip Glass, Steve Re
 
 ## ▶ Play it
 
-**Live:** https://salmanrrana.github.io/ranatable/
+**Live:** https://screenpowers.netlify.app
 
 Or serve the folder locally (the camera requires HTTPS or localhost):
 
