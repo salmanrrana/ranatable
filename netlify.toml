@@ -1,0 +1,15 @@
+# RANATABLE — static site, no build step.
+[build]
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Camera runs on-device; explicitly allow it for this origin only.
+    Permissions-Policy = "camera=(self), microphone=()"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# WASM for MediaPipe loads from jsdelivr; audio worklets from the Tone.js CDN.
+# COEP is intentionally not set — cross-origin isolation would block the CDNs.
