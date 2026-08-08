@@ -1,7 +1,7 @@
-// AETHER TABLE — wiring: camera -> hands -> table -> audio -> render.
+// RANATABLE — wiring: camera -> hands -> table -> audio -> render.
 
 import { Hands } from './hands.js';
-import { AetherAudio } from './audio.js';
+import { RanaAudio } from './audio.js';
 import { Table, DOCK_W } from './table.js';
 import { Renderer } from './render.js';
 
@@ -11,13 +11,13 @@ const startBtn = document.getElementById('start');
 const errBox = document.getElementById('err');
 
 const hands = new Hands();
-const audio = new AetherAudio();
+const audio = new RanaAudio();
 const table = new Table();
 const renderer = new Renderer(document.getElementById('stage'));
 
 startBtn.addEventListener('click', async () => {
   startBtn.disabled = true;
-  startBtn.textContent = 'SUMMONING…';
+  startBtn.textContent = 'TUNING…';
   try {
     // Audio must start inside the user gesture.
     await audio.start();
@@ -41,7 +41,7 @@ startBtn.addEventListener('click', async () => {
 function fail(e) {
   console.error(e);
   startBtn.disabled = false;
-  startBtn.textContent = 'ENTER THE AETHER';
+  startBtn.textContent = 'BEGIN';
   errBox.hidden = false;
   errBox.textContent =
     e.name === 'NotAllowedError'
@@ -51,8 +51,8 @@ function fail(e) {
 
 let lastActive = new Set();
 
-function loop(timeMs) {
-  hands.update(video, timeMs);
+function loop() {
+  hands.update(video);
 
   // --- interaction: pinches steer the table ---
   table.update(hands.hands);

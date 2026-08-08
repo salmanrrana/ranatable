@@ -49,14 +49,14 @@ export class Table {
     const seenHands = new Set();
 
     for (const hand of hands) {
-      seenHands.add(hand.handed);
-      const grab = this._grabs.get(hand.handed);
+      seenHands.add(hand.slot);
+      const grab = this._grabs.get(hand.slot);
 
       if (hand.pinching) {
         if (!grab) this._tryGrab(hand);
         else this._drag(hand, grab);
       } else if (grab) {
-        this._release(hand.handed, grab);
+        this._release(hand.slot, grab);
       }
     }
 
@@ -78,7 +78,7 @@ export class Table {
     }
     if (best) {
       best.held = true;
-      this._grabs.set(hand.handed, { glyph: best, lastRoll: hand.roll, lastPos: { ...p } });
+      this._grabs.set(hand.slot, { glyph: best, lastRoll: hand.roll, lastPos: { ...p } });
       return;
     }
 
@@ -96,7 +96,7 @@ export class Table {
             birth: performance.now(),
           };
           this.glyphs.push(g);
-          this._grabs.set(hand.handed, { glyph: g, lastRoll: hand.roll, lastPos: { ...p } });
+          this._grabs.set(hand.slot, { glyph: g, lastRoll: hand.roll, lastPos: { ...p } });
           return;
         }
       }

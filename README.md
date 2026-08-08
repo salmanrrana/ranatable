@@ -1,21 +1,21 @@
-# ✦ AETHER TABLE
+# ✦ RANATABLE
 
 **A spectral instrument played entirely with your hands.**
 
-Part theremin from another dimension, part [Reactable](https://en.wikipedia.org/wiki/Reactable) made of light. Your camera watches your hands; your hands make the music. No mouse. No touch. Just gesture.
+Part theremin from another dimension, part table of living glyphs. Your camera watches your hands; your hands make the music. No mouse. No touch. Just gesture.
 
 The sound world lives somewhere between Stars of the Lid, Philip Glass, Steve Reich, Björk, and the Angelo Badalamenti / David Lynch red-curtain dreamspace.
 
 ## ▶ Play it
 
-Serve the folder over HTTPS or localhost (the camera requires a secure context):
+**Live:** https://salmanrrana.github.io/ranatable/
+
+Or serve the folder locally (the camera requires HTTPS or localhost):
 
 ```bash
 npx serve .
 # then open http://localhost:3000
 ```
-
-Or just open the deployed GitHub Pages site.
 
 Headphones recommended. Everything runs on-device — no video ever leaves your machine.
 
@@ -47,7 +47,7 @@ Headphones recommended. Everything runs on-device — no video ever leaves your 
 
 ## ⚙ How it works
 
-- **Hand tracking** — [MediaPipe HandLandmarker](https://developers.google.com/mediapipe) (GPU delegate, 2 hands, EMA-smoothed landmarks). Pinch, openness, and wrist-roll are derived per frame.
+- **Hand tracking** — [MediaPipe HandLandmarker](https://developers.google.com/mediapipe) (GPU delegate, 2 hands). Landmarks are mapped through the exact cover+mirror transform of the fullscreen video, so the drawn hand sits precisely on your real hand. Pinch and finger-extension use hysteresis thresholds so gestures never flicker; wrist roll drives the glyph dials.
 - **Sound** — [Tone.js](https://tonejs.github.io/): two portamento voices into a master chain of vibrato → bitcrusher → autofilter → feedback delay → pitch-shift shimmer → 12-second reverb → limiter, plus a detuned drone stack and a transport-driven arpeggiator.
 - **No build step** — plain ES modules + canvas. Deploys as static files.
 

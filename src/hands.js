@@ -1,19 +1,43 @@
 // Hand tracking + gesture reading, built on MediaPipe HandLandmarker.
-// Exposes per-hand: palm position, openness, pinch state, pinch point, and
-// wrist roll angle (used for the "twist to turn it up" gesture).
+//
+// Coordinates: MediaPipe gives landmarks normalized to the *video* frame, but
+// the video is rendered fullscreen with object-fit: cover (cropped) and
+// mirrored. Every point is mapped through that cover+mirror transform so what
+// you see on screen is exactly where your hand is — this alignment is what
+// makes the instrument feel locked on.
+//
+// Landmarks are used raw — VIDEO-mode tracking is already temporally stable,
+// and extra smoothing only adds lag. Binary states (pinching, per-finger
+// extension) use hysteresis so they don't flicker at the threshold.
 
-const VISION_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const MP_VERSION = '0.10.14';
+const VISION_CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
 const MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
 
-const SMOOTH = 0.45; // EMA factor: higher = snappier, lower = smoother
+// Pinch hysteresis (thumb-index distance / hand scale).
+const PINCH_ON = 0.42;
+const PINCH_OFF = 0.58;
+
+// Finger-extension hysteresis (tip vs pip distance ratios from the wrist).
+const EXT_ON = 1.14;
+const EXT_OFF = 1.02;
+
+const TIP = [4, 8, 12, 16, 20];
+const PIP = [3, 6, 10, 14, 18];
 
 export class Hands {
   constructor() {
     this.landmarker = null;
-    this.hands = []; // [{ handed, palm:{x,y}, pinch:{x,y}, pinching, openness, roll, raw }]
-    this._prev = new Map(); // handedness -> smoothed landmarks
+    this.hands = []; // [{ slot, palm, pinch, pinching, pinchStrength, openness, roll, landmarks }]
     this._lastVideoTime = -1;
+    this._lastResult = null;
+    // Sticky state per slot; slot order is stable so state follows the same physical hand.
+    this._pinchState = [false, false];
+    this._fingerState = [
+      [0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0],
+    ];
   }
 
   async init() {
@@ -29,77 +53,110 @@ export class Hands {
     });
   }
 
-  // Call once per animation frame with the <video> element.
-  update(video, timeMs) {
+  // Call once per animation frame with the fullscreen <video> element.
+  update(video) {
     if (!this.landmarker || video.readyState < 2) return;
-    if (video.currentTime === this._lastVideoTime) return;
-    this._lastVideoTime = video.currentTime;
+    if (video.currentTime !== this._lastVideoTime) {
+      this._lastVideoTime = video.currentTime;
+      try {
+        this._lastResult = this.landmarker.detectForVideo(video, performance.now());
+      } catch (e) {
+        /* transient frame decode issue — keep the last good result */
+      }
+    }
+    const result = this._lastResult;
+    if (!result) return;
 
-    const result = this.landmarker.detectForVideo(video, timeMs);
+    // cover + mirror transform: video frame -> screen, normalized 0..1
+    const vw = video.videoWidth || 1280;
+    const vh = video.videoHeight || 720;
+    const cw = innerWidth;
+    const ch = innerHeight;
+    const s = Math.max(cw / vw, ch / vh);
+    const ox = (cw - vw * s) / 2;
+    const oy = (ch - vh * s) / 2;
+    const toScreen = (p) => ({
+      x: (cw - (p.x * vw * s + ox)) / cw,
+      y: (p.y * vh * s + oy) / ch,
+    });
+
+    const found = [];
+    const handedList = result.handednesses ?? result.handedness ?? [];
+    for (let i = 0; i < (result.landmarks?.length ?? 0); i++) {
+      const label = handedList[i]?.[0]?.categoryName ?? 'Right';
+      found.push({ label, lm: result.landmarks[i] });
+    }
+    // Stable slot order: image-"Right" (the user's left hand in the mirror) first.
+    found.sort((a, b) => (a.label === 'Right' ? 0 : 1) - (b.label === 'Right' ? 0 : 1));
+
     const out = [];
+    found.forEach((hand, idx) => {
+      const slot = found.length === 2 ? idx : hand.label === 'Right' ? 0 : 1;
+      const lm = hand.lm;
+      const pts = lm.map(toScreen);
 
-    for (let i = 0; i < result.landmarks.length; i++) {
-      const handed = result.handedness[i]?.[0]?.categoryName ?? `hand${i}`;
-      const lm = this._smooth(handed, result.landmarks[i]);
+      const wrist = pts[0];
+      const indexMcp = pts[5];
+      const pinkyMcp = pts[17];
+      const middleMcp = pts[9];
+      const thumbTip = pts[4];
+      const indexTip = pts[8];
 
-      // Mirror x so screen space matches the mirrored video.
-      const P = (j) => ({ x: 1 - lm[j].x, y: lm[j].y });
+      // Hand scale reference: wrist -> middle knuckle, in video space so the
+      // screen crop can't distort it.
+      const scale = dist(lm[0], lm[9]) || 1e-4;
 
-      const wrist = P(0);
-      const indexMcp = P(5);
-      const pinkyMcp = P(17);
-      const middleMcp = P(9);
-      const thumbTip = P(4);
-      const indexTip = P(8);
+      // Pinch with hysteresis (video space, scale-invariant).
+      const pinchRatio = dist(lm[4], lm[8]) / scale;
+      let pinching = this._pinchState[slot];
+      if (!pinching && pinchRatio < PINCH_ON) pinching = true;
+      else if (pinching && pinchRatio > PINCH_OFF) pinching = false;
+      this._pinchState[slot] = pinching;
 
-      // Hand scale reference: wrist -> middle knuckle.
-      const scale = dist(wrist, middleMcp) || 0.001;
-
-      // Pinch: thumb tip to index tip, relative to hand size.
-      const pinchDist = dist(thumbTip, indexTip) / scale;
-      const pinching = pinchDist < 0.55;
-      const pinch = mid(thumbTip, indexTip);
-
-      // Openness: average fingertip distance from wrist (fist ≈ 0, open ≈ 1).
-      const tips = [8, 12, 16, 20].map(P);
-      const avgTip = tips.reduce((s, t) => s + dist(t, wrist), 0) / tips.length;
-      const openness = clamp((avgTip / scale - 0.85) / 0.85, 0, 1);
+      // Per-finger extension with hysteresis.
+      const states = this._fingerState[slot];
+      for (let f = 0; f < 5; f++) {
+        let ratio;
+        if (f === 0) {
+          ratio = dist(lm[4], lm[17]) / (dist(lm[3], lm[17]) || 1e-4);
+        } else {
+          ratio = dist(lm[TIP[f]], lm[0]) / (dist(lm[PIP[f]], lm[0]) || 1e-4);
+        }
+        if (states[f] === 0 && ratio > EXT_ON) states[f] = 1;
+        else if (states[f] === 1 && ratio < EXT_OFF) states[f] = 0;
+      }
+      // Openness from the four non-thumb fingers — hysteresis makes it steady.
+      const openness = (states[1] + states[2] + states[3] + states[4]) / 4;
 
       // Roll: angle of the knuckle line — twisting your wrist rotates this.
       const roll = Math.atan2(pinkyMcp.y - indexMcp.y, pinkyMcp.x - indexMcp.x);
 
       out.push({
-        handed, // 'Left' / 'Right' (of the mirrored image)
-        palm: mid(wrist, middleMcp),
-        pinch,
+        slot, // 0 and 1 identify the physical hands stably
+        handed: hand.label,
+        palm: {
+          x: (wrist.x + indexMcp.x + pinkyMcp.x) / 3,
+          y: (wrist.y + indexMcp.y + pinkyMcp.y) / 3,
+        },
+        pinch: mid(thumbTip, indexTip),
         pinching,
-        pinchStrength: clamp(1 - pinchDist / 0.55, 0, 1),
+        pinchStrength: clamp(1 - pinchRatio / PINCH_OFF, 0, 1),
         openness,
         roll,
-        landmarks: lm.map((_, j) => P(j)),
+        landmarks: pts,
       });
-    }
+    });
 
-    // Forget smoothing state for hands that left the frame.
-    const seen = new Set(out.map((h) => h.handed));
-    for (const k of this._prev.keys()) if (!seen.has(k)) this._prev.delete(k);
+    // Hands that left the frame release their sticky state.
+    const seenSlots = new Set(out.map((h) => h.slot));
+    for (const slot of [0, 1]) {
+      if (!seenSlots.has(slot)) {
+        this._pinchState[slot] = false;
+        this._fingerState[slot].fill(0);
+      }
+    }
 
     this.hands = out;
-  }
-
-  _smooth(key, lm) {
-    const prev = this._prev.get(key);
-    if (!prev || prev.length !== lm.length) {
-      const copy = lm.map((p) => ({ x: p.x, y: p.y, z: p.z }));
-      this._prev.set(key, copy);
-      return copy;
-    }
-    for (let i = 0; i < lm.length; i++) {
-      prev[i].x += (lm[i].x - prev[i].x) * SMOOTH;
-      prev[i].y += (lm[i].y - prev[i].y) * SMOOTH;
-      prev[i].z += (lm[i].z - prev[i].z) * SMOOTH;
-    }
-    return prev;
   }
 }
 

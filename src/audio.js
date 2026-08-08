@@ -1,4 +1,4 @@
-// The sound of the aether. Tone.js engine tuned for the ethereal:
+// The sound engine. Tone.js tuned for the ethereal:
 // Stars of the Lid drones, Glass/Reich pulses, Badalanenti dread, Bjork shimmer.
 //
 // Two gestural voices:
@@ -21,7 +21,7 @@ export const MODES = [
 
 const ROOT = 48; // C3
 
-export class AetherAudio {
+export class RanaAudio {
   constructor() {
     this.started = false;
     this.modeIndex = 0;

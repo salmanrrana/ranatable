@@ -215,7 +215,7 @@ export class Renderer {
           vx: (Math.random() - 0.5) * 0.6,
           vy: -0.4 - Math.random() * 0.8,
           life: 1,
-          hue: hand.handed === 'Left' ? 200 : 275,
+          hue: hand.slot === 0 ? 200 : 275,
         });
       }
     }
