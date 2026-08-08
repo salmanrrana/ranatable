@@ -1,5 +1,5 @@
 // The sound engine. Tone.js tuned for the ethereal:
-// Stars of the Lid drones, Glass/Reich pulses, Badalanenti dread, Bjork shimmer.
+// Stars of the Lid drones, Glass/Reich pulses, Badalamenti dread, Bjork shimmer.
 //
 // Two gestural voices:
 //   lead    — right hand: x = pitch (quantized to the current mode), y = brightness+volume
