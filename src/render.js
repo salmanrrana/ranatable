@@ -11,12 +11,28 @@ export class Renderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.particles = [];
+    this.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this._lastTime = performance.now();
+    this._glows = new Map();
+    for (const spec of GLYPH_TYPES) {
+      const sprite = document.createElement('canvas');
+      sprite.width = sprite.height = 128;
+      const context = sprite.getContext('2d');
+      const glow = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+      glow.addColorStop(0, `hsla(${spec.hue}, 90%, 65%, 0.5)`);
+      glow.addColorStop(1, `hsla(${spec.hue}, 90%, 65%, 0)`);
+      context.fillStyle = glow;
+      context.fillRect(0, 0, 128, 128);
+      this._glows.set(spec.hue, sprite);
+    }
     this._resize();
     addEventListener('resize', () => this._resize());
   }
 
   _resize() {
-    const dpr = Math.min(devicePixelRatio || 1, 2);
+    // Bound total pixels as well as DPR: a 4K display otherwise asks the
+    // canvas to redraw tens of millions of pixels every frame.
+    const dpr = Math.min(devicePixelRatio || 1, 1.5, Math.sqrt(3_000_000 / (innerWidth * innerHeight)));
     this.canvas.width = innerWidth * dpr;
     this.canvas.height = innerHeight * dpr;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -25,9 +41,12 @@ export class Renderer {
   }
 
   draw(state) {
-    const { hands, table, modeName, leadActive } = state;
+    const { hands, table, modeName, soundName, leadActive } = state;
     const ctx = this.ctx;
-    const t = performance.now() / 1000;
+    const now = performance.now();
+    this.dt = Math.min(0.05, (now - this._lastTime) / 1000);
+    this._lastTime = now;
+    const t = this.reducedMotion ? 0 : now / 1000;
     ctx.clearRect(0, 0, this.w, this.h);
 
     this._aurora(ctx, t, leadActive);
@@ -35,7 +54,7 @@ export class Renderer {
     for (const g of table.glyphs) this._glyph(ctx, g, t);
     for (const hand of hands) this._hand(ctx, hand, t);
     this._particles(ctx);
-    this._hud(ctx, modeName);
+    this._hud(ctx, modeName, soundName);
   }
 
   // Soft drifting bands of light along the bottom — the "table" surface.
@@ -79,11 +98,12 @@ export class Renderer {
     for (const s of table.dockSlots()) {
       const x = s.x * w, y = s.y * h;
       const pulse = 1 + Math.sin(t * 1.4 + s.y * 9) * 0.06;
-      this._sigil(ctx, x, y, 20 * pulse, s, 0.55);
-      ctx.fillStyle = 'rgba(200, 195, 235, 0.5)';
-      ctx.font = '9px Palatino, serif';
+      const radius = Math.min(20, dw * 0.32, h / GLYPH_TYPES.length * 0.28);
+      this._sigil(ctx, x, y, radius * pulse, s, 0.75);
+      ctx.fillStyle = 'rgba(216, 210, 247, 0.9)';
+      ctx.font = '10px Palatino, serif';
       ctx.textAlign = 'center';
-      ctx.fillText(s.label, x, y + 34);
+      ctx.fillText(s.label, x, y + radius + 13, dw - 4);
     }
     ctx.restore();
   }
@@ -99,7 +119,7 @@ export class Renderer {
 
     // Orbiting motes proportional to level.
     ctx.globalCompositeOperation = 'screen';
-    const motes = Math.round(2 + g.level * 6);
+    const motes = this.reducedMotion ? 0 : Math.round(2 + g.level * 6);
     for (let i = 0; i < motes; i++) {
       const a = t * (0.4 + g.level) + (i / motes) * Math.PI * 2;
       const rr = r + 14 + Math.sin(t * 2 + i) * 4;
@@ -147,13 +167,8 @@ export class Renderer {
     ctx.save();
     ctx.globalAlpha = alpha;
 
-    const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 2.2);
-    glow.addColorStop(0, 'hsla(' + hue + ', 90%, 65%, 0.5)');
-    glow.addColorStop(1, 'hsla(' + hue + ', 90%, 65%, 0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(x, y, r * 2.2, 0, Math.PI * 2);
-    ctx.fill();
+    const glow = this._glows.get(hue);
+    ctx.drawImage(glow, x - r * 2.2, y - r * 2.2, r * 4.4, r * 4.4);
 
     ctx.fillStyle = 'hsla(' + hue + ', 55%, 16%, 0.9)';
     ctx.strokeStyle = 'hsla(' + hue + ', 85%, 65%, 0.95)';
@@ -175,12 +190,12 @@ export class Renderer {
   _hand(ctx, hand, t) {
     const w = this.w, h = this.h;
     ctx.save();
-    ctx.globalCompositeOperation = 'screen';
+    ctx.globalCompositeOperation = 'source-over';
 
-    // Constellation: fingertips + wrist, faint lines between.
+    // Constellation: fingertips + wrist, outlined over the camera image.
     const pts = [0, 4, 8, 12, 16, 20].map((i) => hand.landmarks[i]);
-    ctx.strokeStyle = 'rgba(157, 123, 255, 0.35)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(5, 5, 16, 0.8)';
+    ctx.lineWidth = 4;
     ctx.beginPath();
     for (let i = 1; i < pts.length; i++) {
       ctx.moveTo(pts[0].x * w, pts[0].y * h);
@@ -188,15 +203,37 @@ export class Renderer {
     }
     ctx.stroke();
 
+    // A dark edge keeps the hand guide readable over a bright camera image.
+    ctx.strokeStyle = 'rgba(210, 200, 255, 0.95)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
     for (const p of pts) {
       ctx.beginPath();
       ctx.arc(p.x * w, p.y * h, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(210, 200, 255, 0.9)';
       ctx.fill();
+      ctx.strokeStyle = 'rgba(5, 5, 16, 0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // Show what the gesture control is doing, so a rejected pinch or closed
+    // hand is visible rather than silently changing the instrument.
+    if (hand.gesture) {
+      ctx.font = '12px Palatino, serif';
+      ctx.textAlign = 'center';
+      ctx.strokeStyle = 'rgba(5, 5, 16, 0.9)';
+      ctx.lineWidth = 3;
+      ctx.fillStyle = '#f3efff';
+      const label = hand.gesture.toUpperCase();
+      ctx.strokeText(label, hand.palm.x * w, hand.palm.y * h + 22);
+      ctx.fillText(label, hand.palm.x * w, hand.palm.y * h + 22);
     }
 
     // Pinch point becomes a bright star while pinching.
     if (hand.pinching) {
+      ctx.globalCompositeOperation = 'screen';
       const p = hand.pinch;
       const r = 10 + Math.sin(t * 10) * 2;
       const glow = ctx.createRadialGradient(p.x * w, p.y * h, 0, p.x * w, p.y * h, r * 3);
@@ -208,7 +245,7 @@ export class Renderer {
       ctx.fill();
     } else if (hand.openness > 0.25) {
       // Singing: emit motes from the palm.
-      if (Math.random() < 0.5) {
+      if (!this.reducedMotion && this.particles.length < 120 && Math.random() < this.dt * 24) {
         this.particles.push({
           x: hand.palm.x * w,
           y: hand.palm.y * h,
@@ -228,9 +265,9 @@ export class Renderer {
     this.particles = this.particles.filter((p) => p.life > 0);
     if (this.particles.length > 220) this.particles.splice(0, this.particles.length - 220);
     for (const p of this.particles) {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life -= 0.008;
+      p.x += p.vx * this.dt * 60;
+      p.y += p.vy * this.dt * 60;
+      p.life = Math.max(0, p.life - this.dt * 0.48);
       ctx.beginPath();
       ctx.arc(p.x, p.y, 1.8, 0, Math.PI * 2);
       ctx.fillStyle = 'hsla(' + p.hue + ', 85%, 75%, ' + p.life * 0.6 + ')';
@@ -239,12 +276,12 @@ export class Renderer {
     ctx.restore();
   }
 
-  _hud(ctx, modeName) {
+  _hud(ctx, modeName, soundName) {
     ctx.save();
     ctx.fillStyle = 'rgba(200, 195, 235, 0.55)';
     ctx.font = '12px Palatino, serif';
     ctx.textAlign = 'right';
-    ctx.fillText('mode · ' + modeName, this.w - 18, this.h - 16);
+    ctx.fillText((soundName ? soundName + ' · ' : '') + modeName, this.w - 18, this.h - 16);
     ctx.restore();
   }
 }

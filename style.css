@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #050510;
   --ink: #e8e4ff;
   --dim: #8a84b8;
@@ -6,6 +7,9 @@
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
+[hidden] { display: none !important; }
+::selection { background: var(--accent); color: var(--bg); }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 5px; }
 
 html, body {
   height: 100%;
@@ -23,8 +27,7 @@ html, body {
   height: 100dvh; /* tablets: exclude browser chrome so nothing hangs off-screen */
   object-fit: cover;
   transform: scaleX(-1);          /* mirror so it feels like a mirror */
-  filter: grayscale(0.85) brightness(0.42) contrast(1.1);
-  opacity: 0.5;                    /* you, faintly, behind the table */
+  opacity: 0.8;                    /* keep your hands clearly visible while playing */
 }
 
 #stage {
@@ -42,11 +45,13 @@ html, body {
   place-items: center;
   background: radial-gradient(ellipse at 50% 40%, rgba(30, 20, 70, 0.92), rgba(5, 5, 16, 0.985));
   z-index: 10;
+  overflow-y: auto;
   transition: opacity 1.6s ease;
 }
 #overlay.gone { opacity: 0; pointer-events: none; }
 
 .overlay-inner {
+  margin: auto;
   max-width: 620px;
   padding: 2rem;
   text-align: center;
@@ -89,12 +94,53 @@ h1 {
   border: 1px solid var(--accent);
   border-radius: 999px;
   cursor: pointer;
-  transition: all 0.4s ease;
+  transition: background-color 0.25s ease, box-shadow 0.25s ease;
   text-shadow: 0 0 12px rgba(157, 123, 255, 0.9);
 }
 #start:hover {
   background: rgba(157, 123, 255, 0.16);
   box-shadow: 0 0 40px rgba(157, 123, 255, 0.5), inset 0 0 20px rgba(157, 123, 255, 0.2);
+}
+button:disabled { opacity: 0.6; cursor: wait; }
+
+#controls {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: min(420px, 82vw);
+  padding: 10px 12px;
+  background: rgba(10, 8, 26, 0.92);
+  border: 1px solid rgba(157, 123, 255, 0.35);
+  border-radius: 12px;
+  font-size: 0.9rem;
+}
+#controls label { color: #c9c3ea; }
+#controls select, #controls button {
+  min-height: 44px;
+  padding: 6px 12px;
+  font: inherit;
+  color: var(--ink);
+  background: #201833;
+  border: 1px solid var(--dim);
+  border-radius: 6px;
+  cursor: pointer;
+}
+#controls button:hover { background: #352651; }
+#status { flex-basis: 100%; color: #c9c3ea; font-size: 0.8rem; }
+
+@media (max-width: 600px) {
+  .overlay-inner { padding: 1.5rem; }
+  h1 { font-size: clamp(1.6rem, 7vw, 2.2rem); letter-spacing: 0.18em; margin-left: 0.09em; }
+  .howto { margin: 1.3rem 0; line-height: 1.65; }
+  #controls { padding: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #overlay, #start { transition: none; }
 }
 
 .fine {

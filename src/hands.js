@@ -1,171 +1,105 @@
-// Hand tracking + gesture reading, built on MediaPipe HandLandmarker.
-//
-// Coordinates: MediaPipe gives landmarks normalized to the *video* frame, but
-// the video is rendered fullscreen with object-fit: cover (cropped) and
-// mirrored. Every point is mapped through that cover+mirror transform so what
-// you see on screen is exactly where your hand is — this alignment is what
-// makes the instrument feel locked on.
-//
-// Landmarks are used raw — VIDEO-mode tracking is already temporally stable,
-// and extra smoothing only adds lag. Binary states (pinching, per-finger
-// extension) use hysteresis so they don't flicker at the threshold.
+import { Gestures, STALE_HAND_MS } from './gestures.js';
 
-const MP_VERSION = '0.10.14';
-const VISION_CDN = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}`;
-const MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-
-// Pinch hysteresis (thumb-index distance / hand scale).
-const PINCH_ON = 0.42;
-const PINCH_OFF = 0.58;
-
-// Finger-extension hysteresis (tip vs pip distance ratios from the wrist).
-const EXT_ON = 1.14;
-const EXT_OFF = 1.02;
-
-const TIP = [4, 8, 12, 16, 20];
-const PIP = [3, 6, 10, 14, 18];
-
+// One frame in flight, at most 30 detections/sec. Slow inference drops frames
+// instead of queuing video or blocking drawing, audio controls, and input.
 export class Hands {
   constructor() {
-    this.landmarker = null;
-    this.hands = []; // [{ slot, palm, pinch, pinching, pinchStrength, openness, roll, landmarks }]
+    this.hands = [];
+    this.gestures = new Gestures();
+    this._generation = 0;
+    this._interval = 1000 / 30;
+    this._pending = false;
+    this._paused = false;
     this._lastVideoTime = -1;
-    this._lastResult = null;
-    // Sticky state per slot; slot order is stable so state follows the same physical hand.
-    this._pinchState = [false, false];
-    this._fingerState = [
-      [0, 0, 0, 0, 0],
-      [0, 0, 0, 0, 0],
-    ];
+    this._lastSent = -Infinity;
+    this._lastResultAt = -Infinity;
+    this._resultLifetime = STALE_HAND_MS;
+    this._errors = 0;
   }
 
   async init() {
-    const { FilesetResolver, HandLandmarker } = await import(`${VISION_CDN}/vision_bundle.mjs`);
-    const fileset = await FilesetResolver.forVisionTasks(`${VISION_CDN}/wasm`);
-    this.landmarker = await HandLandmarker.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
-      runningMode: 'VIDEO',
-      numHands: 2,
-      minHandDetectionConfidence: 0.5,
-      minHandPresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
-  }
-
-  // Call once per animation frame with the fullscreen <video> element.
-  update(video) {
-    if (!this.landmarker || video.readyState < 2) return;
-    if (video.currentTime !== this._lastVideoTime) {
-      this._lastVideoTime = video.currentTime;
-      try {
-        this._lastResult = this.landmarker.detectForVideo(video, performance.now());
-      } catch (e) {
-        /* transient frame decode issue — keep the last good result */
-      }
-    }
-    const result = this._lastResult;
-    if (!result) return;
-
-    // cover + mirror transform: video frame -> screen, normalized 0..1
-    const vw = video.videoWidth || 1280;
-    const vh = video.videoHeight || 720;
-    const cw = innerWidth;
-    const ch = innerHeight;
-    const s = Math.max(cw / vw, ch / vh);
-    const ox = (cw - vw * s) / 2;
-    const oy = (ch - vh * s) / 2;
-    const toScreen = (p) => ({
-      x: (cw - (p.x * vw * s + ox)) / cw,
-      y: (p.y * vh * s + oy) / ch,
-    });
-
-    const found = [];
-    const handedList = result.handednesses ?? result.handedness ?? [];
-    for (let i = 0; i < (result.landmarks?.length ?? 0); i++) {
-      const label = handedList[i]?.[0]?.categoryName ?? 'Right';
-      found.push({ label, lm: result.landmarks[i] });
-    }
-    // Stable slot order: image-"Right" (the user's left hand in the mirror) first.
-    found.sort((a, b) => (a.label === 'Right' ? 0 : 1) - (b.label === 'Right' ? 0 : 1));
-
-    const out = [];
-    found.forEach((hand, idx) => {
-      const slot = found.length === 2 ? idx : hand.label === 'Right' ? 0 : 1;
-      const lm = hand.lm;
-      const pts = lm.map(toScreen);
-
-      const wrist = pts[0];
-      const indexMcp = pts[5];
-      const pinkyMcp = pts[17];
-      const middleMcp = pts[9];
-      const thumbTip = pts[4];
-      const indexTip = pts[8];
-
-      // Hand scale reference: wrist -> middle knuckle, in video space so the
-      // screen crop can't distort it.
-      const scale = dist(lm[0], lm[9]) || 1e-4;
-
-      // Pinch with hysteresis (video space, scale-invariant).
-      const pinchRatio = dist(lm[4], lm[8]) / scale;
-      let pinching = this._pinchState[slot];
-      if (!pinching && pinchRatio < PINCH_ON) pinching = true;
-      else if (pinching && pinchRatio > PINCH_OFF) pinching = false;
-      this._pinchState[slot] = pinching;
-
-      // Per-finger extension with hysteresis.
-      const states = this._fingerState[slot];
-      for (let f = 0; f < 5; f++) {
-        let ratio;
-        if (f === 0) {
-          ratio = dist(lm[4], lm[17]) / (dist(lm[3], lm[17]) || 1e-4);
-        } else {
-          ratio = dist(lm[TIP[f]], lm[0]) / (dist(lm[PIP[f]], lm[0]) || 1e-4);
-        }
-        if (states[f] === 0 && ratio > EXT_ON) states[f] = 1;
-        else if (states[f] === 1 && ratio < EXT_OFF) states[f] = 0;
-      }
-      // Openness from the four non-thumb fingers — hysteresis makes it steady.
-      const openness = (states[1] + states[2] + states[3] + states[4]) / 4;
-
-      // Roll: angle of the knuckle line — twisting your wrist rotates this.
-      const roll = Math.atan2(pinkyMcp.y - indexMcp.y, pinkyMcp.x - indexMcp.x);
-
-      out.push({
-        slot, // 0 and 1 identify the physical hands stably
-        handed: hand.label,
-        palm: {
-          x: (wrist.x + indexMcp.x + pinkyMcp.x) / 3,
-          y: (wrist.y + indexMcp.y + pinkyMcp.y) / 3,
-        },
-        pinch: mid(thumbTip, indexTip),
-        pinching,
-        pinchStrength: clamp(1 - pinchRatio / PINCH_OFF, 0, 1),
-        openness,
-        roll,
-        landmarks: pts,
+    if (this.worker) return;
+    const worker = new Worker(new URL('./hands-worker.js', import.meta.url));
+    this.worker = worker;
+    this.error = null;
+    this._paused = false;
+    this._errors = 0;
+    try {
+      await new Promise((resolve, reject) => {
+        const cleanup = () => { clearTimeout(timer); this._cancelInit = null; };
+        const fail = error => { cleanup(); reject(error); this.error = error; };
+        const timer = setTimeout(() => fail(new Error('Hand tracking took too long to load. Check your connection and try again.')), 45000);
+        this._cancelInit = () => { cleanup(); reject(new DOMException('Hand tracking was stopped.', 'AbortError')); };
+        worker.onerror = event => fail(new Error(event.message || 'Hand tracking stopped. Try starting again.'));
+        worker.onmessage = ({ data }) => {
+          if (data.type === 'ready') { cleanup(); resolve(); }
+          else if (data.type === 'error') fail(new Error(data.message));
+          else {
+            this._pending = false;
+            if (data.type === 'frame-error') {
+              if (++this._errors >= 3) this.error = new Error(data.message || 'Hand tracking lost the camera. Try again.');
+              return;
+            }
+            this._errors = 0;
+            this._interval = Math.max(1000 / 30, Math.min(100, data.inferenceMs * 1.2));
+            if (this._paused || data.generation !== this._generation) return;
+            const receivedAt = performance.now();
+            // Only one frame is in flight, so this is the latest result.
+            // Expire a hand when results STOP arriving, not before a slower
+            // device has had a chance to finish its first detection.
+            this._resultLifetime = Math.max(STALE_HAND_MS, Math.min(1000, (receivedAt - data.timestamp) * 1.5 + 50));
+            this._lastResultAt = receivedAt;
+            this.hands = this.gestures.read(data.result, this._viewport, receivedAt, this._resultLifetime);
+          }
+        };
+        worker.postMessage({ type: 'init' });
       });
-    });
-
-    // Hands that left the frame release their sticky state.
-    const seenSlots = new Set(out.map((h) => h.slot));
-    for (const slot of [0, 1]) {
-      if (!seenSlots.has(slot)) {
-        this._pinchState[slot] = false;
-        this._fingerState[slot].fill(0);
-      }
-    }
-
-    this.hands = out;
+    } catch (error) { this.dispose(); throw error; }
   }
-}
 
-function dist(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-function mid(a, b) {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-}
-function clamp(v, lo, hi) {
-  return Math.min(hi, Math.max(lo, v));
+  update(video, now = performance.now()) {
+    if (this.error) throw this.error;
+    if (this.hands.length && now - this._lastResultAt > this._resultLifetime) this.hands = [];
+    if (!this.worker || this._paused || video.readyState < 2) return;
+    if (this._pending) {
+      if (now - this._lastSent > 3000) throw new Error('Hand tracking stopped responding. Please try again.');
+      return;
+    }
+    if (video.currentTime === this._lastVideoTime || now - this._lastSent < this._interval) return;
+    this._lastVideoTime = video.currentTime;
+    this._lastSent = now;
+    this._pending = true;
+    this._viewport = { videoWidth: video.videoWidth, videoHeight: video.videoHeight, width: innerWidth, height: innerHeight };
+    const worker = this.worker, generation = this._generation;
+    createImageBitmap(video).then(bitmap => {
+      if (worker !== this.worker || this._paused || generation !== this._generation) {
+        bitmap.close();
+        if (worker === this.worker) this._pending = false;
+        return;
+      }
+      try { worker.postMessage({ type: 'frame', bitmap, timestamp: now, generation }, [bitmap]); }
+      catch (error) { bitmap.close(); throw error; }
+    }).catch(error => {
+      if (worker !== this.worker) return;
+      this._pending = false;
+      if (++this._errors >= 3) this.error = error;
+    });
+  }
+
+  pause(paused) {
+    this._paused = paused;
+    this._generation++;
+    this.hands = [];
+    this.gestures.reset();
+    this._lastVideoTime = -1;
+    this._lastResultAt = -Infinity;
+  }
+
+  dispose() {
+    this._cancelInit?.();
+    this.worker?.terminate();
+    this.worker = null;
+    this._pending = false;
+    this.pause(true);
+  }
 }
