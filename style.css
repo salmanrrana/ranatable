@@ -151,15 +151,13 @@ button:disabled { opacity: 0.6; cursor: wait; }
 }
 
 #err {
-  position: fixed;
-  left: 50%;
-  bottom: 8vh;
-  transform: translateX(-50%);
-  z-index: 20;
+  margin: 0 0 1.2rem;
+  text-align: left;
+  overflow-wrap: anywhere;
   background: rgba(60, 10, 20, 0.9);
   border: 1px solid #ff5470;
   padding: 0.9rem 1.4rem;
   border-radius: 8px;
   font-size: 0.9rem;
-  max-width: 80vw;
+  width: 100%;
 }

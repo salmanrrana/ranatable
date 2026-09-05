@@ -19,20 +19,34 @@ export class Hands {
 
   async init() {
     if (this.worker) return;
+    this._paused = false;
+    this._usedFallback = false;
+    await this._initWorker();
+  }
+
+  async _initWorker(delegate) {
     const worker = new Worker(new URL('./hands-worker.js', import.meta.url));
     this.worker = worker;
     this.error = null;
-    this._paused = false;
+    this._ready = false;
+    this._pending = false;
+    this._lastVideoTime = -1;
+    this._lastSent = -Infinity;
+    this._receivedFrame = false;
     this._errors = 0;
     try {
       await new Promise((resolve, reject) => {
         const cleanup = () => { clearTimeout(timer); this._cancelInit = null; };
-        const fail = error => { cleanup(); reject(error); this.error = error; };
+        const fail = error => {
+          if (worker !== this.worker) return;
+          cleanup(); reject(error); this.error = error;
+        };
         const timer = setTimeout(() => fail(new Error('Hand tracking took too long to load. Check your connection and try again.')), 45000);
         this._cancelInit = () => { cleanup(); reject(new DOMException('Hand tracking was stopped.', 'AbortError')); };
         worker.onerror = event => fail(new Error(event.message || 'Hand tracking stopped. Try starting again.'));
         worker.onmessage = ({ data }) => {
-          if (data.type === 'ready') { cleanup(); resolve(); }
+          if (worker !== this.worker) return;
+          if (data.type === 'ready') { this._ready = true; cleanup(); resolve(); }
           else if (data.type === 'error') fail(new Error(data.message));
           else {
             this._pending = false;
@@ -40,6 +54,7 @@ export class Hands {
               if (++this._errors >= 3) this.error = new Error(data.message || 'Hand tracking lost the camera. Try again.');
               return;
             }
+            this._receivedFrame = true;
             this._errors = 0;
             this._interval = Math.max(1000 / 30, Math.min(100, data.inferenceMs * 1.2));
             if (this._paused || data.generation !== this._generation) return;
@@ -52,17 +67,34 @@ export class Hands {
             this.hands = this.gestures.read(data.result, this._viewport, receivedAt, this._resultLifetime);
           }
         };
-        worker.postMessage({ type: 'init' });
+        worker.postMessage({ type: 'init', delegate });
       });
-    } catch (error) { this.dispose(); throw error; }
+    } catch (error) {
+      if (worker === this.worker) this.dispose();
+      throw error;
+    }
   }
 
   update(video, now = performance.now()) {
     if (this.error) throw this.error;
     if (this.hands.length && now - this._lastResultAt > this._resultLifetime) this.hands = [];
-    if (!this.worker || this._paused || video.readyState < 2) return;
+    if (!this.worker || !this._ready || this._paused || video.readyState < 2) return;
     if (this._pending) {
-      if (now - this._lastSent > 3000) throw new Error('Hand tracking stopped responding. Please try again.');
+      // First inference includes lazy model/GPU setup on mobile. A ready
+      // worker has not yet proved that its graphics path can process frames.
+      if (now - this._lastSent > (this._receivedFrame ? 3000 : 15000)) {
+        if (this._usedFallback) throw new Error('Hand tracking stopped responding. Please try again.');
+        this._usedFallback = true;
+        this.worker.terminate();
+        this.worker = null;
+        this._generation++;
+        this.hands = [];
+        this.gestures.reset();
+        console.warn('Hand tracking stalled; restarting with CPU processing.');
+        void this._initWorker('CPU').catch(error => {
+          if (error.name !== 'AbortError') this.error = error;
+        });
+      }
       return;
     }
     if (video.currentTime === this._lastVideoTime || now - this._lastSent < this._interval) return;
@@ -87,6 +119,7 @@ export class Hands {
   }
 
   pause(paused) {
+    if (!paused && this._paused && this._pending) this._lastSent = performance.now();
     this._paused = paused;
     this._generation++;
     this.hands = [];

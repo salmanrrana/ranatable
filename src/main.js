@@ -90,6 +90,7 @@ async function fail(error) {
   errBox.textContent = error.name === 'NotAllowedError'
     ? 'Camera access was denied. Allow the camera in your browser and press BEGIN to try again.'
     : 'Could not start the instrument: ' + (error.message || error);
+  errBox.scrollIntoView({ block: 'center' });
 }
 
 async function pauseSession() {

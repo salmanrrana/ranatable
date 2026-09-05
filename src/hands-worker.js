@@ -11,7 +11,7 @@ self.onmessage = async ({ data }) => {
       const fileset = await FilesetResolver.forVisionTasks(`${VISION_CDN}/wasm`);
       // Software WebGL can initialize successfully but take seconds per
       // frame. Use the CPU delegate when hardware acceleration is absent.
-      const probe = new OffscreenCanvas(1, 1).getContext('webgl2', { failIfMajorPerformanceCaveat: true });
+      const probe = data.delegate === 'CPU' ? null : new OffscreenCanvas(1, 1).getContext('webgl2', { failIfMajorPerformanceCaveat: true });
       const info = probe?.getExtension('WEBGL_debug_renderer_info');
       const renderer = info ? probe.getParameter(info.UNMASKED_RENDERER_WEBGL) : '';
       const hardwareGPU = probe && !/swiftshader|llvmpipe|software/i.test(renderer);

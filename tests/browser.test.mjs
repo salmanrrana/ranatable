@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, extname, sep } from 'node:path';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 let browser, server, origin;
@@ -76,7 +76,7 @@ test('slow hand inference cannot freeze input, queue frames, or retain stale ges
   } finally { await context.close(); }
 });
 
-test('the playing screen shows slow detections and releases hands when they leave', { timeout: 20000 }, async () => {
+test('the playing screen survives a slow first detection and releases hands when they leave', { timeout: 20000 }, async () => {
   const context = await browser.newContext();
   try {
     // A complete but slow result must reach the same UI/audio path as a fast
@@ -86,7 +86,7 @@ test('the playing screen shows slow detections and releases hands when they leav
       let frames = 0;
       export const HandLandmarker = { createFromOptions: async () => ({
         detectForVideo() {
-          const end = performance.now() + 320; while (performance.now() < end) {}
+          const end = performance.now() + (frames === 0 ? 3400 : 320); while (performance.now() < end) {}
           if (++frames > 8) return { landmarks: [], handednesses: [] };
           const lm = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.65, z: 0 }));
           lm[0].y = 0.8;
@@ -109,7 +109,7 @@ test('the playing screen shows slow detections and releases hands when they leav
       };
     });
     await page.getByRole('button', { name: 'BEGIN', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('#status').textContent === '1 hand in view', null, { timeout: 4000 });
+    await page.waitForFunction(() => document.querySelector('#status').textContent === '1 hand in view', null, { timeout: 8000 });
     assert.equal(await page.evaluate(() => window.leadPlayingForTest), true);
     // Wait across multiple slow results: the hand must not blink out between
     // responses simply because inference takes longer than a fast camera.
@@ -256,4 +256,129 @@ test('real MediaPipe worker recognizes two hands and the UI fits desktop and mob
       assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width && bounds.y + bounds.height <= height);
     }
   } finally { await context.close(); }
+});
+
+test('mobile recovers from a silent tracker and keeps retry errors above BEGIN', { timeout: 30000 }, async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 700 }, isMobile: true });
+  const errors = [], warnings = [];
+  try {
+    // A worker can report ready while its first inference never returns.
+    // Exercise the real frame watchdog, replacement worker and playing UI.
+    await context.route('**/hands-worker.js', route => route.fulfill({ contentType: 'text/javascript', body: `
+      let delegate;
+      onmessage = ({ data }) => {
+        if (data.type === 'init') { delegate = data.delegate; postMessage({ type: 'ready' }); }
+        if (data.type === 'frame') {
+          data.bitmap.close();
+          if (delegate === 'CPU') postMessage({ type: 'result', result: { landmarks: [], handednesses: [] },
+            timestamp: data.timestamp, generation: data.generation, inferenceMs: 10 });
+        }
+      };` }));
+    const page = await context.newPage();
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => {
+      if (message.type() === 'warning') warnings.push(message.text());
+      if (message.type() === 'error') errors.push(message.text());
+    });
+    await page.goto(origin);
+    await page.evaluate(() => {
+      const OriginalWorker = Worker;
+      window.Worker = class extends OriginalWorker {
+        constructor(...args) {
+          super(...args);
+          window.trackerForTest = this;
+          this.addEventListener('message', ({ data }) => {
+            if (data.type === 'result') window.recoveredFrames = (window.recoveredFrames || 0) + 1;
+          });
+        }
+      };
+    });
+    await page.getByRole('button', { name: 'BEGIN', exact: true }).click();
+    await page.waitForFunction(() => window.recoveredFrames > 1, null, { timeout: 22000 });
+    assert.equal(await page.locator('#err').isHidden(), true);
+    assert.equal(await page.locator('#controls').isVisible(), true);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(warnings, ['Hand tracking stalled; restarting with CPU processing.']);
+    // Deliberately fail the replacement to inspect the actual retry surface.
+    await page.evaluate(() => trackerForTest.dispatchEvent(new ErrorEvent('error', { message: 'Test tracker failure' })));
+    await page.waitForFunction(() => !document.querySelector('#err').hidden);
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('#overlay')).opacity === '1');
+    await page.locator('#start').scrollIntoViewIfNeeded();
+    const errorBounds = await page.locator('#err').boundingBox();
+    const buttonBounds = await page.locator('#start').boundingBox();
+    assert.ok(errorBounds.y + errorBounds.height <= buttonBounds.y, 'error must not cover retry');
+    assert.ok(buttonBounds.x >= 0 && buttonBounds.x + buttonBounds.width <= 390);
+    await mkdir(new URL('../test-results/', import.meta.url), { recursive: true });
+    await page.screenshot({ path: new URL('../test-results/mobile-error.png', import.meta.url).pathname });
+    assert.ok(errors.every(message => message.includes('Test tracker failure')), JSON.stringify(errors));
+    console.log('Mobile recovery logs:', { warnings, expectedErrors: errors });
+  } finally { await context.close(); }
+});
+
+test('real MediaPipe processes mobile frames in WebKit', { skip: !process.env.REAL_TRACKING, timeout: 60000 }, async t => {
+  const safari = await webkit.launch({ executablePath: process.env.WEBKIT_PATH || undefined });
+  try {
+    const context = await safari.newContext({ viewport: { width: 390, height: 844 }, isMobile: true });
+    const page = await probePage(context);
+    const errors = [], logs = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', message => {
+      if (['warning', 'error'].includes(message.type())) logs.push(message.text());
+    });
+    const supportsWorkerGL = await page.evaluate(() => new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(new Blob([
+        "postMessage(!!new OffscreenCanvas(1, 1).getContext('webgl2'));"
+      ], { type: 'text/javascript' }));
+      const worker = new Worker(url);
+      const cleanup = () => { worker.terminate(); URL.revokeObjectURL(url); };
+      worker.onmessage = ({ data }) => { cleanup(); resolve(data); };
+      worker.onerror = event => { cleanup(); reject(new Error(event.message)); };
+    }));
+    if (!supportsWorkerGL) {
+      t.skip('This WebKit runtime has no worker WebGL context; real tracking requires a graphics-capable WebKit or iPhone.');
+      return;
+    }
+    const tracked = await page.evaluate(async () => {
+      const { Hands } = await import('/src/hands.js');
+      const hands = new Hands();
+      const image = new Image(); image.crossOrigin = 'anonymous';
+      image.src = 'https://storage.googleapis.com/mediapipe-assets/right_hands.jpg';
+      await image.decode();
+      // WebKit has no canvas.captureStream. Feed real bitmap pixels through
+      // the same Hands.update / worker path, with video frame metadata.
+      const source = document.createElement('canvas');
+      source.width = source.videoWidth = image.width;
+      source.height = source.videoHeight = image.height;
+      source.readyState = 2;
+      source.getContext('2d').drawImage(image, 0, 0);
+      try {
+        await hands.init();
+        const deadline = performance.now() + 35000;
+        while (hands.hands.length < 2 && performance.now() < deadline) {
+          source.currentTime = performance.now() / 1000;
+          hands.update(source);
+          await new Promise(resolve => setTimeout(resolve, 30));
+        }
+        return hands.hands.length;
+      } finally { hands.dispose(); }
+    }).catch(error => {
+      console.log('WebKit tracking failure logs:', { errors, logs });
+      throw error;
+    });
+    console.log('WebKit real tracking:', { hands: tracked, errors, logs });
+    assert.equal(tracked, 2);
+    assert.deepEqual(errors, []);
+    await page.goto(origin);
+    await page.evaluate(() => {
+      const error = document.querySelector('#err');
+      error.textContent = 'Could not start the instrument: Hand tracking stopped responding. Please try again.';
+      error.hidden = false;
+      document.querySelector('#start').scrollIntoView({ block: 'center' });
+    });
+    await page.screenshot({ path: new URL('../test-results/webkit-mobile-error.png', import.meta.url).pathname });
+    const bounds = await page.locator('#err').boundingBox();
+    const button = await page.locator('#start').boundingBox();
+    assert.ok(bounds.y + bounds.height <= button.y);
+    assert.ok(button.x >= 0 && button.x + button.width <= 390);
+  } finally { await safari.close(); }
 });

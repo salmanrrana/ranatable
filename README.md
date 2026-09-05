@@ -57,7 +57,10 @@ notes and grabs instead of leaving a phantom hand playing.
 
 The camera stays clearly visible while playing. Tracking accepts the latest
 completed detection even on slower devices; only missing results expire, with
-a short timeout adjusted to the detection rate (at most one second). A completed
+a short timeout adjusted to the detection rate (at most one second). The first
+detection gets up to 15 seconds for mobile model startup. If a worker stops
+responding, tracking retries once in a fresh CPU worker; time spent paused does
+not count toward the response timeout. A completed
 result with no hands still releases notes immediately.
 
 ## ⛫ The glyphs
@@ -89,7 +92,7 @@ One glyph per effect: plucking its dock seed again picks up the existing glyph.
 ```bash
 pnpm install
 pnpm test
-pnpm exec playwright install chromium
+pnpm exec playwright install chromium webkit
 pnpm test:browser
 # Include the real MediaPipe model and Google's public two-hand test image:
 REAL_TRACKING=1 pnpm test:browser
@@ -98,9 +101,11 @@ REAL_TRACKING=1 pnpm test:browser
 The browser checks start their own temporary localhost server and use a fake
 camera. They cover slow inference responsiveness, stale-hand release, sound
 output and bass bounds, slow detections reaching the playing screen, idle automation, camera denial/retry, pause/resume,
-and tracker failure cleanup. The optional real-model check also saves desktop
+tracker failure cleanup, automatic recovery from a silent worker, and mobile retry layout. The optional real-model check exercises Chromium and WebKit and also saves desktop
 and mobile screenshots under `test-results/` (gitignored). Set `CHROMIUM_PATH`
-if you want to use an existing Chromium installation.
+if you want to use an existing Chromium installation, or `WEBKIT_PATH` for WebKit.
+The real WebKit check reports a skip on runtimes without worker WebGL; that
+is not a substitute for checking tracking on an actual iPhone.
 
 The gesture checks include recorded model outputs from public MediaPipe hand
 images (source URLs are stored with the fixtures), plus pinch/release and wrist
