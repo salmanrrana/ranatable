@@ -21,15 +21,15 @@ Headphones recommended. Everything runs on-device — no video ever leaves your 
 
 ## ✋ How to play
 
-| Gesture | What happens |
-|---|---|
-| **Open hand, move around** | You are the theremin. Left/right = pitch (quantized to the current mode), up/down = brightness and intensity. |
-| **Close your fist** | That voice falls silent. |
-| **Two open hands** | Rightmost hand plays the lead voice, the other plays a warm lower harmony voice below it. |
-| **Pinch a glyph in the left dock, drag it out** | A live glyph is born on the table. |
-| **Pinch + drag a placed glyph** | Reposition it — *where* it sits on the table shapes its sound (e.g. Echo: x = delay time, y = feedback). |
-| **Pinch a glyph and twist your wrist** | The dial. Clockwise = turn it up, counter-clockwise = down. The glowing ring shows the level. |
-| **Drag a glyph back into the dock** | It dissolves. |
+| Gesture                                         | What happens                                                                                                  |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| **Open hand, move around**                      | You are the theremin. Left/right = pitch (quantized to the current mode), up/down = brightness and intensity. |
+| **Close your fist**                             | That voice falls silent.                                                                                      |
+| **Two open hands**                              | Rightmost hand plays the lead voice, the other plays a warm lower harmony voice below it.                     |
+| **Pinch a glyph in the left dock, drag it out** | A live glyph is born on the table.                                                                            |
+| **Pinch + drag a placed glyph**                 | Reposition it — _where_ it sits on the table shapes its sound (e.g. Echo: x = delay time, y = feedback).      |
+| **Pinch a glyph and twist your wrist**          | The dial. Clockwise = turn it up, counter-clockwise = down. The glowing ring shows the level.                 |
+| **Drag a glyph back into the dock**             | It dissolves.                                                                                                 |
 
 The label beside each hand shows **OPEN**, **PINCH**, **FIST**, or **REST**.
 A closed fist releases a glyph; it cannot grab one. To turn a dial, keep your
@@ -39,12 +39,12 @@ wrist in place and rotate your hand. Moving the wrist drags the glyph.
 
 Use the **Sound** menu while playing, or move the **Sound** glyph horizontally:
 
-| Sound | Character |
-|---|---|
-| **Aether** | Airy, slowly blooming tones. |
-| **Velvet** | Warm, rounded reeds and strings. |
-| **Glass** | Crystalline bells and bright mallets. |
-| **Ember** | Smoky, resonant brass. |
+| Sound      | Character                             |
+| ---------- | ------------------------------------- |
+| **Aether** | Airy, slowly blooming tones.          |
+| **Velvet** | Warm, rounded reeds and strings.      |
+| **Glass**  | Crystalline bells and bright mallets. |
+| **Ember**  | Smoky, resonant brass.                |
 
 Each palette changes both hand voices and the pulse's mallet sound. The drone's
 lowest note is now C2 (65 Hz), with a quieter bass layer; harmony stays at C3 or
@@ -65,18 +65,18 @@ result with no hands still releases notes immediately.
 
 ## ⛫ The glyphs
 
-| Glyph | Sound |
-|---|---|
-| ∿ **Drone** | Endless swelling tones — Stars of the Lid on the horizon. x = root note, y = swell speed. |
-| ⣿ **Pulse** | Glass/Reich arpeggios in the current mode. x = tempo, y = octave span. |
-| ⟳ **Echo** | Feedback delay. x = time, y = regeneration. |
-| ⛫ **Cathedral** | Vast stone reverb. Level = how much of the room you're standing in. |
-| ✦ **Shimmer** | Pitch-shifted sparkle rising off everything. x = fifth vs octave, y = feedback. |
-| ▚ **Crush** | Broken-transmission bit reduction. x = bit depth. |
-| ≈ **Tides** | A slow breathing filter over the whole world. x = rate, y = depth. |
-| ↯ **Vibrato** | Trembling pitch, from subtle to seasick. x = speed, y = depth. |
-| ◈ **Sound** | x selects Aether, Velvet, Glass, or Ember. |
-| ♯ **Tonality** | A switch, not a dial — its x position picks the mode: Lydian, Dorian, Whole Tone, Hirajoshi, Phrygian, Major Pentatonic. |
+| Glyph           | Sound                                                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| ∿ **Drone**     | Endless swelling tones — Stars of the Lid on the horizon. x = root note, y = swell speed.                                |
+| ⣿ **Pulse**     | Glass/Reich arpeggios in the current mode. x = tempo, y = octave span.                                                   |
+| ⟳ **Echo**      | Feedback delay. x = time, y = regeneration.                                                                              |
+| ⛫ **Cathedral** | Vast stone reverb. Level = how much of the room you're standing in.                                                      |
+| ✦ **Shimmer**   | Pitch-shifted sparkle rising off everything. x = fifth vs octave, y = feedback.                                          |
+| ▚ **Crush**     | Broken-transmission bit reduction. x = bit depth.                                                                        |
+| ≈ **Tides**     | A slow breathing filter over the whole world. x = rate, y = depth.                                                       |
+| ↯ **Vibrato**   | Trembling pitch, from subtle to seasick. x = speed, y = depth.                                                           |
+| ◈ **Sound**     | x selects Aether, Velvet, Glass, or Ember.                                                                               |
+| ♯ **Tonality**  | A switch, not a dial — its x position picks the mode: Lydian, Dorian, Whole Tone, Hirajoshi, Phrygian, Major Pentatonic. |
 
 One glyph per effect: plucking its dock seed again picks up the existing glyph.
 
@@ -91,12 +91,19 @@ One glyph per effect: plucking its dock seed again picks up the existing glyph.
 
 ```bash
 pnpm install
+pnpm check:fast
 pnpm test
 pnpm exec playwright install chromium webkit
 pnpm test:browser
 # Include the real MediaPipe model and Google's public two-hand test image:
 REAL_TRACKING=1 pnpm test:browser
 ```
+
+`pnpm install` also configures the repository's executable pre-commit hook. It
+checks an isolated snapshot of staged JavaScript and configuration with Oxlint
+and Prettier, then runs the fast Node test suite for changes that can affect it.
+Deleted source files trigger tests, and unstaged edits are left alone. Browser
+tests remain a separate command because they install and launch browsers.
 
 The browser checks start their own temporary localhost server and use a fake
 camera. They cover slow inference responsiveness, stale-hand release, sound
